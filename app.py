@@ -1,39 +1,35 @@
+import ccxt, math, os
 
-import os, json
-from flask import Flask, request, abort
-import ccxt, dotenv
+SPREAD_BPS   = 5     # 0.05 % inside spread
+ALLOC_PCT    = 0.20  # 20 %
 
-dotenv.load_dotenv()
-app = Flask(__name__)
+def place_post_only_limit(k, side, pair, usd_pct=None, sell_all=False):
+    orderbook = k.fetch_order_book(pair, 10)
+    bid = orderbook['bids'][0][0]
+    ask = orderbook['asks'][0][0]
 
-kraken = ccxt.kraken({
-    'apiKey': os.getenv("KRAKEN_KEY"),
-    'secret': os.getenv("KRAKEN_SECRET"),
-    'enableRateLimit': True,
-})
+    if side == "buy":
+        usd_balance = float(k.fetch_balance()['ZUSD']['free'])
+        usd_to_spend = usd_balance * (usd_pct or ALLOC_PCT)
+        price  = bid * (1 - SPREAD_BPS / 10_000)
+        volume = usd_to_spend / price
+    else:  # sell
+        base = pair[:-4]  # crude: "XXETHZUSD" -> "XXETHZ"
+        base_bal = float(k.fetch_balance()[base]['free'])
+        volume = base_bal if sell_all else base_bal * (usd_pct or ALLOC_PCT)
+        price  = ask * (1 + SPREAD_BPS / 10_000)
 
-SHARED_SECRET = os.getenv("SHARED_SECRET", "changeme")
+    # round vol to Kraken step size
+    vol_step = float(k.fetch_market(pair)['precision']['amount'])
+    volume = math.floor(volume / vol_step) * vol_step
 
-def is_authorized(req):
-    return req.headers.get("Tradingview-Secret") == SHARED_SECRET
+    params = {
+        "pair":      pair,
+        "type":      side,
+        "ordertype": "limit",
+        "price":     str(price),
+        "volume":    str(volume),
+        "oflags":    "post",   # ← post-only
+    }
+    return k.private_post_add_order(params)
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    if not is_authorized(request):
-        abort(403)
-    data = request.get_json(force=True)
-    print("Webhook received:", data)
-
-    try:
-        order = {
-            "pair": data["symbol"],
-            "type": data["action"],
-            "ordertype": "limit",
-            "price": data["price"],
-            "volume": data["quantity"],
-            "validate": os.getenv("VALIDATE", "false").lower() == "true"
-        }
-        result = kraken.private_post_add_order(order)
-        return {"status": "success", "result": result}, 200
-    except Exception as e:
-        return {"status": "error", "message": str(e)}, 500
