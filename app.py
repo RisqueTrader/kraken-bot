@@ -100,6 +100,8 @@ def webhook():
         usd_pct  = float(data.get("usd_pct", ALLOC_PCT * 100)) / 100
         sell_all = str(data.get("sell_all", "false")).lower() == "true"
 
+        print(f"✅ Parsed data → Action: {action}, Pair: {pair}, USD_PCT: {usd_pct}, Sell all: {sell_all}")
+
         if action not in ("buy", "sell") or not pair:
             print("⚠️ Bad payload structure")
             return jsonify({"error": "bad payload"}), 400
@@ -110,13 +112,14 @@ def webhook():
             usd_pct=usd_pct,
             sell_all=sell_all
         )
+
         print("✅ Order result:", result)
         return jsonify(result), 200
 
     except Exception as e:
         print("❌ Uncaught error:", str(e))
-        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
 
 # ─── Local run ───
 if __name__ == "__main__":
