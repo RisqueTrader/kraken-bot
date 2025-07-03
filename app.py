@@ -1,20 +1,20 @@
-# app.py  –  TradingView → Kraken post-only maker bot
+# app.py – TradingView → Kraken post-only maker bot
 import os, math
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 import ccxt
 
-load_dotenv()  # Render injects env vars; this also works locally
+load_dotenv()  # Works locally and with Render environment variables
 
 # ─── Configuration ────────────────────────────────────────────────────────────
-API_KEY        = os.getenv("KRAKEN_API_KEY")
-API_SECRET     = os.getenv("KRAKEN_API_SECRET")
-TV_SECRET      = os.getenv("TRADINGVIEW_SECRET")
+API_KEY    = os.getenv("KRAKEN_API_KEY")
+API_SECRET = os.getenv("KRAKEN_API_SECRET")
+TV_SECRET  = os.getenv("TRADINGVIEW_SECRET")
 
-ALLOC_PCT      = float(os.getenv("ALLOC_PCT", 0.20))   # 0.20 = 20 %
-MIN_USD        = float(os.getenv("MIN_USD", 500))      # $500 minimum
-DRY_RUN        = os.getenv("VALIDATE", "false").lower() == "true"
-SPREAD_BPS     = 5  # 0.05 % inside spread for maker limit
+ALLOC_PCT  = float(os.getenv("ALLOC_PCT", 0.20))       # 0.20 = 20%
+MIN_USD    = float(os.getenv("MIN_USD", 500))          # $500 minimum
+DRY_RUN    = os.getenv("VALIDATE", "false").lower() == "true"
+SPREAD_BPS = 5  # 0.05% inside spread for limit maker order
 
 # ─── Kraken client ────────────────────────────────────────────────────────────
 kraken = ccxt.kraken({
@@ -28,7 +28,7 @@ app = Flask(__name__)
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 def round_volume(vol, pair):
     market = kraken.market(pair)
-    step   = 10 ** -market['precision']['amount']
+    step = 10 ** -market['precision']['amount']
     return math.floor(vol / step) * step
 
 def post_only_limit(side, pair, usd_pct=ALLOC_PCT, sell_all=False):
@@ -38,26 +38,26 @@ def post_only_limit(side, pair, usd_pct=ALLOC_PCT, sell_all=False):
 
     if side == "buy":
         usd_free = float(kraken.fetch_balance()["ZUSD"]["free"])
-
-        # Determine USD amount to spend
         usd_from_pct = usd_free * usd_pct
         usd_amt = max(usd_from_pct, MIN_USD)
 
-        # If free balance < MIN_USD, abort
         if usd_free < MIN_USD:
             raise ValueError(f"Free USD (${usd_free:.2f}) is below MIN_USD (${MIN_USD})")
 
-        # Do not exceed available balance
         usd_amt = min(usd_amt, usd_free)
-
-        price  = round(bid * (1 - SPREAD_BPS / 10_000), 2)
+        price = round(bid * (1 - SPREAD_BPS / 10_000), 5)
         volume = round_volume(usd_amt / price, pair)
 
     else:  # SELL
-        base_key = pair[:-4]  # crude: XXETHZUSD → XXETHZ
+        market = kraken.market(pair)
+        base_key = market["base"]
         base_free = float(kraken.fetch_balance()[base_key]["free"])
+
+        if base_free == 0:
+            raise ValueError(f"No {base_key} balance available to sell")
+
         volume = base_free if sell_all else round_volume(base_free * usd_pct, pair)
-        price  = round(ask * (1 + SPREAD_BPS / 10_000), 2)
+        price = round(ask * (1 + SPREAD_BPS / 10_000), 5)
 
     order = {
         "pair":      pair,
@@ -65,8 +65,8 @@ def post_only_limit(side, pair, usd_pct=ALLOC_PCT, sell_all=False):
         "ordertype": "limit",
         "price":     str(price),
         "volume":    str(volume),
-        "oflags":    "post",           # maker-only
-        "validate":  DRY_RUN           # simulate if DRY_RUN = True
+        "oflags":    "post",
+        "validate":  DRY_RUN
     }
 
     resp = kraken.private_post_add_order(order)
@@ -95,9 +95,9 @@ def webhook():
             print("❌ Secret mismatch")
             return jsonify({"error": "unauthorized"}), 403
 
-        action   = data.get("action")
-        pair     = data.get("symbol")
-        usd_pct  = float(data.get("usd_pct", ALLOC_PCT * 100)) / 100
+        action = data.get("action")
+        pair = data.get("symbol")
+        usd_pct = float(data.get("usd_pct", ALLOC_PCT * 100)) / 100
         sell_all = str(data.get("sell_all", "false")).lower() == "true"
 
         if action not in ("buy", "sell") or not pair:
@@ -117,9 +117,8 @@ def webhook():
         print("❌ Uncaught error:", str(e))
         return jsonify({"error": str(e)}), 500
 
-
-
 # ─── Local run ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001, debug=True)
+
 
