@@ -87,7 +87,7 @@ def health():
 @app.route("/webhook", methods=["POST"])
 def webhook():
     # Header secret check
-    if request.headers.get("Tradingview-Secret") != TV_SECRET:
+    if request.json.get("secret") != TV_SECRET:
         return jsonify({"error": "unauthorized"}), 403
 
     data = request.get_json(force=True) or {}
