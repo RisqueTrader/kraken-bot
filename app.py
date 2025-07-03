@@ -86,30 +86,37 @@ def health():
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.get_json(force=True) or {}
-
-    # 🔒 Validate secret in body
-    if data.get("secret") != TV_SECRET:
-        return jsonify({"error": "unauthorized"}), 403
-
-    action   = data.get("action")     # "buy" or "sell"
-    pair     = data.get("symbol")     # e.g. "XXETHZUSD"
-    usd_pct  = float(data.get("usd_pct", ALLOC_PCT * 100)) / 100
-    sell_all = str(data.get("sell_all", "false")).lower() == "true"
-
-    if action not in ("buy", "sell") or not pair:
-        return jsonify({"error": "bad payload"}), 400
-
     try:
+        data = request.get_json(force=True) or {}
+        print("📩 Incoming alert:", data)
+
+        # Secret check
+        if data.get("secret") != TV_SECRET:
+            print("❌ Secret mismatch")
+            return jsonify({"error": "unauthorized"}), 403
+
+        action   = data.get("action")
+        pair     = data.get("symbol")
+        usd_pct  = float(data.get("usd_pct", ALLOC_PCT * 100)) / 100
+        sell_all = str(data.get("sell_all", "false")).lower() == "true"
+
+        if action not in ("buy", "sell") or not pair:
+            print("⚠️ Bad payload structure")
+            return jsonify({"error": "bad payload"}), 400
+
         result = post_only_limit(
             side=action,
             pair=pair,
             usd_pct=usd_pct,
             sell_all=sell_all
         )
+        print("✅ Order result:", result)
         return jsonify(result), 200
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+
+    except Exception as e:
+        print("❌ Uncaught error:", str(e))
+        return jsonify({"error": str(e)}), 500
+
 
 
 # ─── Local run ────────────────────────────────────────────────────────────────
