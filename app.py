@@ -86,11 +86,12 @@ def health():
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    # Header secret check
-    if request.json.get("secret") != TV_SECRET:
+    data = request.get_json(force=True) or {}
+
+    # 🔒 Validate secret in body
+    if data.get("secret") != TV_SECRET:
         return jsonify({"error": "unauthorized"}), 403
 
-    data = request.get_json(force=True) or {}
     action   = data.get("action")     # "buy" or "sell"
     pair     = data.get("symbol")     # e.g. "XXETHZUSD"
     usd_pct  = float(data.get("usd_pct", ALLOC_PCT * 100)) / 100
@@ -109,6 +110,7 @@ def webhook():
         return jsonify(result), 200
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
 
 # ─── Local run ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
